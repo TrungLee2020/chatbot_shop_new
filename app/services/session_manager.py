@@ -160,17 +160,36 @@ class SessionManager:
         
         return len(sessions)
     
-    def add_message(
-        self,
-        session_id: str,
-        role: str,
-        content: str,
-        **kwargs
-    ):
-        """Add message to session"""
-        session = self.get(session_id)
-        if not session:
-            raise ValueError(f"Session not found: {session_id}")
+    def add_message(self, session_id: str, role: str, content: str, **kwargs):
+        """Add message atomically using Lua script"""
+        
+        lua_script = """
+        local key = KEYS[1]
+        local message = ARGV[1]
+        local ttl = ARGV[2]
+        
+        local session = redis.call('GET', key)
+        if not session then
+            return nil
+        end
+        
+        local data = cjson.decode(session)
+        table.insert(data.messages, cjson.decode(message))
+        
+        -- Keep last 50
+        if #data.messages > 50 then
+            local start = #data.messages - 49
+            local new_messages = {}
+            for i = start, #data.messages do
+                table.insert(new_messages, data.messages[i])
+            end
+            data.messages = new_messages
+        end
+        
+        data.last_activity = ARGV[3]
+        redis.call('SETEX', key, ttl, cjson.encode(data))
+        return 1
+        """
         
         message = {
             "role": role,
@@ -179,13 +198,17 @@ class SessionManager:
             **kwargs
         }
         
-        session["messages"].append(message)
+        result = self.redis.eval(
+            lua_script,
+            1,
+            self._key(session_id),
+            json.dumps(message),
+            str(self.ttl),
+            datetime.utcnow().isoformat()
+        )
         
-        # Keep last 50 messages
-        if len(session["messages"]) > 50:
-            session["messages"] = session["messages"][-50:]
-        
-        self.update(session_id, session)
+        if not result:
+            raise ValueError(f"Session not found: {session_id}")
     
     def set_guest_info(self, session_id: str, guest_info: Dict):
         """Save guest info to session (for orders)"""

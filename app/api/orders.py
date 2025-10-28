@@ -11,6 +11,9 @@ from app.api.auth import get_current_user_optional
 from app.services.session_manager import SessionManager
 from app.core.redis_client import get_redis
 
+redis_client = get_redis()
+session_manager = SessionManager(redis_client)
+
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
 

@@ -21,16 +21,27 @@ class KafkaService:
         self.consumer = None
     
     def get_producer(self) -> KafkaProducer:
-        """Get Kafka producer (singleton)"""
+        """Get Kafka producer with retry logic"""
         if not self.producer:
-            self.producer = KafkaProducer(
-                bootstrap_servers=self.bootstrap_servers,
-                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                key_serializer=lambda k: k.encode('utf-8') if k else None,
-                acks='all',
-                retries=3
-            )
-            logger.info("✅ Kafka producer initialized")
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    self.producer = KafkaProducer(
+                        bootstrap_servers=self.bootstrap_servers,
+                        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                        key_serializer=lambda k: k.encode('utf-8') if k else None,
+                        acks='all',
+                        retries=3,
+                        max_block_ms=5000  # ✅ Timeout để không block forever
+                    )
+                    logger.info("✅ Kafka producer initialized")
+                    break
+                except Exception as e:
+                    logger.error(f"❌ Kafka connection attempt {attempt+1} failed: {e}")
+                    if attempt == max_retries - 1:
+                        raise
+                    time.sleep(2)
+        
         return self.producer
     
     def send_message(self, topic: str, message: dict, key: str = None):

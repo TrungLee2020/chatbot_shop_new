@@ -4,6 +4,7 @@ Authentication - Optional for chat, required for some features
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
+import uuid
 
 from app.models.auth import Token, LoginRequest, User
 from app.core.security import create_access_token, verify_token

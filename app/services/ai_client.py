@@ -62,12 +62,21 @@ class AIClient:
                 logger.info(f"✅ AI API response received for session {session_id}")
                 return response.json()
                 
+        except httpx.TimeoutException:
+            logger.error("⏱️ AI API timeout")
+            return self._fallback_response(message)
+        
         except httpx.HTTPError as e:
             logger.error(f"❌ AI API error: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ Unexpected error calling AI API: {e}")
-            raise
+            return self._fallback_response(message)
+
+    def _fallback_response(self, message: str) -> Dict:
+        """Fallback when AI API fails"""
+        return {
+            "response": "Xin lỗi, hệ thống AI đang bận. Vui lòng thử lại sau ít phút.",
+            "products": [],
+            "intent": "system_error"
+        }
 
 
 # Global instance

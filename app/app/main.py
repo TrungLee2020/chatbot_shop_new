@@ -9,6 +9,9 @@ import logging
 from app.config import settings
 from app.api import auth, chat
 from app.core.redis_client import redis_client
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+scheduler = AsyncIOScheduler()
 
 # Setup logging
 logging.basicConfig(
@@ -51,9 +54,9 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production: specify allowed origins
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React/Vite
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -88,7 +91,30 @@ async def health_check():
         "redis": redis_status
     }
 
+@scheduler.scheduled_job('interval', minutes=30)
+async def cleanup_old_sessions():
+    """Cleanup expired sessions every 30 minutes"""
+    redis_client = get_redis()
+    session_manager = SessionManager(redis_client)
+    
+    # Scan tất cả device sessions
+    for key in redis_client.scan_iter(match="device_sessions:*"):
+        device_id = key.split(":")[1]
+        deleted = session_manager.cleanup_device_sessions(device_id, keep_latest=5)
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} sessions for device {device_id}")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    scheduler.start()
+    logger.info("✅ Scheduler started")
+    
+    yield
+    
+    # Shutdown
+    scheduler.shutdown()
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
