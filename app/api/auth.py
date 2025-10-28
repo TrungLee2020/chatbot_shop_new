@@ -37,22 +37,25 @@ async def get_current_user_optional(
 async def get_current_user_required(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> User:
-    """
-    Get current user from JWT token (REQUIRED)
-    Raises 401 if no valid token
-    Use for endpoints that require authentication
-    """
     if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required"
-        )
+        raise HTTPException(401, "Authentication required")
     
     token = credentials.credentials
     payload = verify_token(token)
     user_id = payload.get("sub")
     
-    return User(user_id=user_id, username=f"user_{user_id}")
+    # ✅ TODO: Fetch from database in production
+    # user = await db.users.find_one({"user_id": user_id})
+    # if not user:
+    #     raise HTTPException(401, "User not found")
+    # return User(**user)
+    
+    # Mock for now (OK for development)
+    return User(
+        user_id=user_id,
+        username=f"user_{user_id}",
+        email=f"user_{user_id}@example.com"
+    )
 
 
 @router.post("/login", response_model=Token)

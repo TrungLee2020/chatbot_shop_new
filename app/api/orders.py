@@ -31,30 +31,33 @@ async def create_order(
     """
     # Validate
     request.validate_identity()
+    session_manager = SessionManager(redis_client)
+    session = session_manager.get(request.session_id)
+
+    if not session:
+        raise HTTPException(404, "Session not found")
     
     # Determine user type
     if current_user:
-        # Logged-in user
+        # Authenticated user
+        if session["user_id"] != current_user.user_id:
+            raise HTTPException(403, "Session does not belong to you")
         user_id = current_user.user_id
         is_guest = False
-        
-        # TODO: Fetch user info from database
-        customer_info = {
-            "user_id": user_id,
-            "name": "User Name",  # From DB
-            "phone": "0123456789",  # From DB
-            "email": "user@example.com"  # From DB
-        }
     else:
         # Guest user
+        if not request.device_id:
+            raise HTTPException(400, "device_id required for guest users")
+        
+        if session["device_id"] != request.device_id:
+            raise HTTPException(403, "Session does not belong to this device")
+        
         if not request.guest_info:
-            raise HTTPException(
-                status_code=400,
-                detail="guest_info required for guest checkout"
-            )
+            raise HTTPException(400, "guest_info required for guest checkout")
         
         user_id = None
         is_guest = True
+        
         customer_info = {
             "device_id": request.device_id,
             "name": request.guest_info.name,

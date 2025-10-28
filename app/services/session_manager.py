@@ -113,6 +113,14 @@ class SessionManager:
             self.ttl,
             json.dumps(data)
         )
+
+    def extend_ttl(self, session_id: str):
+        """Extend session TTL without updating data"""
+        key = self._key(session_id)
+        if self.redis.exists(key):
+            self.redis.expire(key, self.ttl)
+            return True
+        return False
     
     def upgrade_to_authenticated(
         self,
@@ -187,3 +195,34 @@ class SessionManager:
         
         session["guest_info"] = guest_info
         self.update(session_id, session)
+
+    def cleanup_device_sessions(self, device_id: str, keep_latest: int = 5):
+        """
+        Cleanup old sessions for device, keep only N latest
+        
+        Args:
+            device_id: Device ID
+            keep_latest: Number of recent sessions to keep
+        """
+        sessions = self.get_by_device(device_id)
+        
+        if len(sessions) <= keep_latest:
+            return 0
+        
+        # Sort by last_activity (oldest first)
+        sessions.sort(key=lambda s: s["last_activity"])
+        
+        # Delete old sessions
+        deleted = 0
+        for session in sessions[:-keep_latest]:
+            self.redis.delete(self._key(session["session_id"]))
+            deleted += 1
+        
+        return deleted
+
+# Call this periodically or when creating new session
+if not request.user_id:
+    # Guest user - cleanup old sessions
+    session_manager.cleanup_device_sessions(request.device_id, keep_latest=5)
+
+    # session_manager.extend_ttl(session_id)

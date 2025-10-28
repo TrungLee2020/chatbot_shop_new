@@ -13,6 +13,10 @@ from app.services.kafka_service import kafka_service
 from app.services.ai_client import ai_client
 from app.core.redis_client import get_redis
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
@@ -53,14 +57,21 @@ async def send_message(
     if request.session_id:
         session = session_manager.get(request.session_id)
         if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
+            # Session expired or invalid - create new one
+            logger.warning(f"Session {request.session_id} not found, creating new")
+            session = session_manager.create(
+                user_id=request.user_id,
+                device_id=request.device_id
+            )
+            request.session_id = session["session_id"]
     else:
-        # Create new session
+        # First message - create new session
         session = session_manager.create(
             user_id=request.user_id,
             device_id=request.device_id
         )
         request.session_id = session["session_id"]
+        logger.info(f"✨ New session created: {request.session_id}")
     
     # Generate message ID
     message_id = str(uuid.uuid4())
