@@ -6,12 +6,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.config import settings
-from app.api import auth, chat
-from app.core.redis_client import redis_client
+# from app.config import settings
+# from app.api import auth, chat
+# from app.core.redis_client import redis_client
+# from apscheduler.schedulers.asyncio import AsyncIOScheduler
+# from app.services.session_manager import SessionManager
+# from app.core.redis_client import get_redis
+
+from .config import settings
+from ..api import auth, chat, orders
+from ..core.redis_client import redis_client, get_redis
+from ..services.session_manager import SessionManager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from app.services.session_manager import SessionManager
-from app.core.redis_client import get_redis
 
 scheduler = AsyncIOScheduler()
 
