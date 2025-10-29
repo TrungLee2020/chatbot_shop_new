@@ -155,7 +155,7 @@ async def send_message(
         session = session_manager.get(request.session_id)
         chat_history = session.get("messages", [])[-10:]  # Last 10 messages
         
-        #  AI API CALL - Only message + session_id
+        # ✅ SIMPLIFIED AI API CALL - Only message + session_id
         ai_response_data = await ai_client.send_message(
             message=request.message,
             session_id=request.session_id
