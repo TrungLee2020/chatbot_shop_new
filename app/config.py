@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     KAFKA_CONSUMER_GROUP: str = "chat-service-group"
     
     # External AI API - ✅ Added default values
-    AI_API_URL: str = "http://localhost:5000/api/chat"
+    AI_API_URL: str = "http://10.141.32.222:8000/sessions/" #"http://localhost:5000/api/chat"
     AI_API_KEY: str = "mock-api-key-for-development"
     AI_API_TIMEOUT: int = 30
     

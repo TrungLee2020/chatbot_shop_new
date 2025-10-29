@@ -121,10 +121,10 @@ Bạn đang tìm sản phẩm gì?"""
         response_text += f"\n\n_({history_count} tin nhắn trong session này)_"
     
     return {
-        "response": response_text,
-        "products": products,
-        "intent": intent,
-        "confidence": 0.85
+        "content": response_text,
+        "products": products or [],
+        "intent": intent or [],
+        "confidence": 0.0
     }
 
 
