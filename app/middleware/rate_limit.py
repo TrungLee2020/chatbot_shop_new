@@ -2,7 +2,7 @@
 Rate limiting middleware for guest users
 """
 import redis
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from datetime import datetime
 
 class RateLimiter:
@@ -22,6 +22,12 @@ class RateLimiter:
             identity: user_id or device_id
             max_requests: Max requests per window
             window_seconds: Time window in seconds
+        
+        Raises:
+            HTTPException: 429 if rate limit exceeded
+            
+        Returns:
+            int: Current request count
         """
         key = f"ratelimit:{identity}:{datetime.utcnow().minute}"
         
@@ -40,27 +46,4 @@ class RateLimiter:
         
         return count
 
-# Usage in chat.py
-@router.post("/message")
-async def send_message(
-    request: ChatMessage,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user_optional)
-):
-    # ... (identity logic)
-    
-    # ✅ Rate limiting
-    redis_client = get_redis()
-    rate_limiter = RateLimiter(redis_client)
-    
-    try:
-        rate_limiter.check_rate_limit(
-            identity=identity_id,
-            max_requests=10,
-            window_seconds=60
-        )
-    except HTTPException:
-        logger.warning(f"⚠️ Rate limit exceeded for {identity_id}")
-        raise
-    
-    # ... (rest of code)
+# ✅ END OF FILE - Không có code nào nữa!

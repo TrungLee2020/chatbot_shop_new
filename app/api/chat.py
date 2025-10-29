@@ -46,23 +46,33 @@ async def send_message(
     # STEP 1: Determine User Identity
     # ========================================
     if current_user:
-        # Authenticated user from JWT
         identity_id = current_user.user_id
-        identity_type = "user"
-        is_authenticated = True
-        logger.info(f"👤 Authenticated user: {identity_id}")
     else:
-        # Guest user - MUST have device_id
         if not request.device_id:
-            raise HTTPException(
-                status_code=400,
-                detail="device_id required for guest users"
-            )
+            raise HTTPException(400, "device_id required for guest users")
         identity_id = request.device_id
-        identity_type = "device"
-        is_authenticated = False
-        logger.info(f"🎭 Guest user: {identity_id}")
     
+    # ✅ Rate limiting
+    redis_client = get_redis()
+    rate_limiter = RateLimiter(redis_client)
+    
+    try:
+        rate_limiter.check_rate_limit(
+            identity=identity_id,
+            max_requests=10,
+            window_seconds=60
+        )
+    except HTTPException as e:
+        logger.warning(f"⚠️ Rate limit exceeded: {identity_id}")
+        raise
+
+    if not current_user and request.device_id:
+        # Optional: cleanup in background
+        background_tasks.add_task(
+            session_manager.cleanup_device_sessions,
+            request.device_id,
+            keep_latest=5
+        )
     # ========================================
     # STEP 2: Rate Limiting
     # ========================================
