@@ -1,6 +1,12 @@
 """
 Create Kafka topics
 """
+import sys
+import os
+
+# ✅ ADD THIS: Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
 from kafka.admin import KafkaAdminClient, NewTopic
 from kafka.errors import TopicAlreadyExistsError
 
@@ -28,8 +34,12 @@ def create_topics():
     try:
         admin_client.create_topics(new_topics=topics, validate_only=False)
         print("✅ Topics created successfully")
+        print(f"  - {settings.KAFKA_TOPIC_CHAT_REQUESTS}")
+        print(f"  - {settings.KAFKA_TOPIC_CHAT_RESPONSES}")
     except TopicAlreadyExistsError:
         print("⚠️  Topics already exist")
+    except Exception as e:
+        print(f"❌ Error creating topics: {e}")
     finally:
         admin_client.close()
 
