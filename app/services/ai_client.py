@@ -22,8 +22,8 @@ class AIClient:
         self,
         message: str,
         session_id: str,
-        user_id: str,
-        chat_history: list = None
+        # user_id: str,
+        # chat_history: list = None
     ) -> Dict:
         """
         Send message to AI API
@@ -40,8 +40,8 @@ class AIClient:
         payload = {
             "message": message,
             "session_id": session_id,
-            "user_id": user_id,
-            "chat_history": chat_history or []
+            # "user_id": user_id,
+            # "chat_history": chat_history or []
         }
         
         headers = {
@@ -54,7 +54,7 @@ class AIClient:
                 response = await client.post(
                     self.api_url,
                     json=payload,
-                    headers=headers
+                    # headers=headers
                 )
                 
                 response.raise_for_status()

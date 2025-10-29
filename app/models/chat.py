@@ -1,5 +1,5 @@
 """
-Chat models - Updated for guest users
+Chat models
 """
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
@@ -14,7 +14,7 @@ class ChatMessage(BaseModel):
     user_id: Optional[str] = None  # For logged-in users
     device_id: Optional[str] = None  # For guest users
     
-    # Session
+    # Session (optional - will be created if not provided)
     session_id: Optional[str] = None
     
     # Message
@@ -36,7 +36,7 @@ class ChatMessage(BaseModel):
 
 class ChatResponse(BaseModel):
     message_id: str
-    session_id: str
+    session_id: str  # ← Frontend MUST save this!
     device_id: Optional[str] = None
     user_id: Optional[str] = None
     user_message: str
@@ -45,6 +45,7 @@ class ChatResponse(BaseModel):
     intent: Optional[str] = None
     timestamp: str
     is_authenticated: bool = False
+    session_created: bool = False  # ← NEW: True if new session was created
 
 
 class GuestInfo(BaseModel):

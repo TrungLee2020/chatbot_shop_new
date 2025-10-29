@@ -10,6 +10,8 @@ from app.config import settings
 from app.api import auth, chat
 from app.core.redis_client import redis_client
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from app.services.session_manager import SessionManager
+from app.core.redis_client import get_redis
 
 scheduler = AsyncIOScheduler()
 
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
     # Test Redis connection
     try:
         redis_client.ping()
+        scheduler.start()
         logger.info("✅ Redis connected")
     except Exception as e:
         logger.error(f"❌ Redis connection failed: {e}")
@@ -41,6 +44,7 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("⏹️  Shutting down application...")
+    scheduler.shutdown()
     redis_client.close()
 
 
@@ -103,17 +107,6 @@ async def cleanup_old_sessions():
         deleted = session_manager.cleanup_device_sessions(device_id, keep_latest=5)
         if deleted > 0:
             logger.info(f"Cleaned up {deleted} sessions for device {device_id}")
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    scheduler.start()
-    logger.info("✅ Scheduler started")
-    
-    yield
-    
-    # Shutdown
-    scheduler.shutdown()
     
 if __name__ == "__main__":
     import uvicorn

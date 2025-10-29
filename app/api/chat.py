@@ -1,9 +1,11 @@
 """
-Chat API - Support both guest and authenticated users
+Chat API - REVISED LOGIC
+Support both guest and authenticated users properly
 """
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 import uuid
 from datetime import datetime
+import logging
 
 from app.models.chat import ChatMessage, ChatResponse
 from app.models.auth import User
@@ -12,8 +14,7 @@ from app.services.session_manager import SessionManager
 from app.services.kafka_service import kafka_service
 from app.services.ai_client import ai_client
 from app.core.redis_client import get_redis
-
-import logging
+from app.middleware.rate_limit import RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -27,99 +28,157 @@ async def send_message(
     current_user: User = Depends(get_current_user_optional)
 ):
     """
-    Send chat message
+    Send chat message - Works for BOTH guest and authenticated users
     
-    Works for both:
-    - Guest users (provide device_id)
-    - Logged-in users (provide user_id, or auto-detected from JWT)
+    Guest: Provide device_id (from browser fingerprint/UUID)
+    Authenticated: JWT token in header (optional user_id in body)
+    
+    Flow:
+    1. Determine identity (guest device_id OR authenticated user_id)
+    2. Get/create session in Redis
+    3. Add user message to session
+    4. Publish to Kafka (background)
+    5. Call AI API immediately
+    6. Return response
     """
-    # Determine identity
+    
+    # ========================================
+    # STEP 1: Determine User Identity
+    # ========================================
     if current_user:
-        # Logged-in user
+        # Authenticated user from JWT
         identity_id = current_user.user_id
+        identity_type = "user"
         is_authenticated = True
-        request.user_id = current_user.user_id
+        logger.info(f"👤 Authenticated user: {identity_id}")
     else:
-        # Guest user - must provide device_id
+        # Guest user - MUST have device_id
         if not request.device_id:
             raise HTTPException(
                 status_code=400,
                 detail="device_id required for guest users"
             )
         identity_id = request.device_id
+        identity_type = "device"
         is_authenticated = False
+        logger.info(f"🎭 Guest user: {identity_id}")
     
-    # Initialize session manager
+    # ========================================
+    # STEP 2: Rate Limiting
+    # ========================================
     redis_client = get_redis()
+    rate_limiter = RateLimiter(redis_client)
+    
+    try:
+        rate_limiter.check_rate_limit(
+            identity=identity_id,
+            max_requests=10,  # 10 messages per minute
+            window_seconds=60
+        )
+    except HTTPException as e:
+        logger.warning(f"⚠️ Rate limit exceeded: {identity_id}")
+        raise
+    
+    # ========================================
+    # STEP 3: Session Management
+    # ========================================
     session_manager = SessionManager(redis_client)
     
-    # Get or create session
     if request.session_id:
+        # Use existing session
         session = session_manager.get(request.session_id)
+        
         if not session:
-            # Session expired or invalid - create new one
-            logger.warning(f"Session {request.session_id} not found, creating new")
+            # Session expired or invalid - create new
+            logger.warning(f"⚠️ Session not found: {request.session_id}, creating new")
             session = session_manager.create(
-                user_id=request.user_id,
-                device_id=request.device_id
+                user_id=current_user.user_id if current_user else None,
+                device_id=request.device_id if not current_user else None
             )
             request.session_id = session["session_id"]
+        else:
+            # Verify session ownership
+            if is_authenticated and session.get("user_id") != identity_id:
+                raise HTTPException(403, "Session does not belong to you")
+            if not is_authenticated and session.get("device_id") != identity_id:
+                raise HTTPException(403, "Session does not belong to this device")
+            
+            logger.info(f"✅ Using existing session: {request.session_id}")
     else:
-        # First message - create new session
+        # Create new session (first message)
         session = session_manager.create(
-            user_id=request.user_id,
-            device_id=request.device_id
+            user_id=current_user.user_id if current_user else None,
+            device_id=request.device_id if not current_user else None
         )
         request.session_id = session["session_id"]
         logger.info(f"✨ New session created: {request.session_id}")
     
-    # Generate message ID
+    # ========================================
+    # STEP 4: Save User Message
+    # ========================================
     message_id = str(uuid.uuid4())
     
-    # Add user message
     session_manager.add_message(
         session_id=request.session_id,
         role="user",
         content=request.message
     )
     
-    # Publish to Kafka
+    logger.info(f"💾 User message saved to session")
+    
+    # ========================================
+    # STEP 5: Publish to Kafka (Background)
+    # ========================================
     kafka_message = {
         "message_id": message_id,
         "session_id": request.session_id,
-        "user_id": request.user_id,
-        "device_id": request.device_id,
+        "user_id": current_user.user_id if current_user else None,
+        "device_id": request.device_id if not current_user else None,
         "is_authenticated": is_authenticated,
         "message": request.message,
         "timestamp": datetime.utcnow().isoformat()
     }
+    
+    # Send to Kafka in background (non-blocking)
     background_tasks.add_task(
         kafka_service.send_chat_request,
         kafka_message
     )
     
-    # Call AI API
+    logger.info(f"📨 Kafka publish scheduled")
+    
+    # ========================================
+    # STEP 6: Call AI API (Synchronous)
+    # ========================================
     try:
+        # Get chat history for context
         session = session_manager.get(request.session_id)
-        chat_history = session.get("messages", [])[-10:]
+        chat_history = session.get("messages", [])[-10:]  # Last 10 messages
         
+        #  AI API CALL - Only message + session_id
         ai_response_data = await ai_client.send_message(
             message=request.message,
-            session_id=request.session_id,
-            user_id=request.user_id or request.device_id,
-            chat_history=chat_history
+            session_id=request.session_id
         )
         
         ai_response_text = ai_response_data.get("response", "")
         products = ai_response_data.get("products", [])
         intent = ai_response_data.get("intent")
+        confidence = ai_response_data.get("confidence", 0)
+        
+        logger.info(f"🤖 AI response received: intent={intent}, products={len(products)}")
         
     except Exception as e:
-        ai_response_text = "Xin lỗi, tôi đang gặp sự cố. Vui lòng thử lại sau."
+        logger.error(f"❌ AI API error: {e}")
+        # Fallback response
+        ai_response_text = "Xin lỗi, tôi đang gặp sự cố kỹ thuật. Vui lòng thử lại sau."
         products = []
-        intent = None
+        intent = "system_error"
+        confidence = 0
     
-    # Add AI response
+    # ========================================
+    # STEP 7: Save AI Response
+    # ========================================
     session_manager.add_message(
         session_id=request.session_id,
         role="assistant",
@@ -128,11 +187,36 @@ async def send_message(
         intent=intent
     )
     
+    # ========================================
+    # STEP 8: Publish Response to Kafka (Background)
+    # ========================================
+    response_kafka_message = {
+        "message_id": message_id,
+        "session_id": request.session_id,
+        "user_id": current_user.user_id if current_user else None,
+        "device_id": request.device_id if not current_user else None,
+        "response": ai_response_text,
+        "products": products,
+        "intent": intent,
+        "confidence": confidence,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    background_tasks.add_task(
+        kafka_service.send_chat_response,
+        response_kafka_message
+    )
+    
+    # ========================================
+    # STEP 9: Return Response to Frontend
+    # ========================================
+    logger.info(f"✅ Message processed successfully")
+    
     return ChatResponse(
         message_id=message_id,
         session_id=request.session_id,
-        device_id=request.device_id,
-        user_id=request.user_id,
+        device_id=request.device_id if not current_user else None,
+        user_id=current_user.user_id if current_user else None,
         user_message=request.message,
         ai_response=ai_response_text,
         products=products,
@@ -140,3 +224,94 @@ async def send_message(
         timestamp=datetime.utcnow().isoformat(),
         is_authenticated=is_authenticated
     )
+
+
+@router.get("/session/{session_id}")
+async def get_session_info(
+    session_id: str,
+    current_user: User = Depends(get_current_user_optional)
+):
+    """
+    Get session info - Works for both guest and authenticated
+    
+    Authenticated: Verify session belongs to user
+    Guest: No verification (anyone with session_id can access)
+    """
+    redis_client = get_redis()
+    session_manager = SessionManager(redis_client)
+    
+    session = session_manager.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found or expired")
+    
+    # If authenticated, verify ownership
+    if current_user and session.get("user_id") != current_user.user_id:
+        raise HTTPException(403, "Access denied")
+    
+    return {
+        "session_id": session["session_id"],
+        "user_id": session.get("user_id"),
+        "device_id": session.get("device_id"),
+        "is_authenticated": session.get("is_authenticated", False),
+        "created_at": session["created_at"],
+        "last_activity": session["last_activity"],
+        "message_count": len(session.get("messages", [])),
+        "messages": session.get("messages", [])[-20:]  # Last 20 messages
+    }
+
+
+@router.post("/session/upgrade")
+async def upgrade_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user_optional)
+):
+    """
+    Upgrade guest session to authenticated session
+    Called after guest user logs in or registers
+    """
+    if not current_user:
+        raise HTTPException(401, "Must be authenticated to upgrade session")
+    
+    redis_client = get_redis()
+    session_manager = SessionManager(redis_client)
+    
+    try:
+        upgraded_session = session_manager.upgrade_to_authenticated(
+            session_id=session_id,
+            user_id=current_user.user_id
+        )
+        
+        logger.info(f"✨ Session upgraded: {session_id} → user {current_user.user_id}")
+        
+        return {
+            "message": "Session upgraded successfully",
+            "session_id": upgraded_session["session_id"],
+            "user_id": upgraded_session["user_id"]
+        }
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.delete("/session/{session_id}")
+async def delete_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user_optional)
+):
+    """Delete session - authenticated users only"""
+    if not current_user:
+        raise HTTPException(401, "Authentication required")
+    
+    redis_client = get_redis()
+    session_manager = SessionManager(redis_client)
+    
+    session = session_manager.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    
+    # Verify ownership
+    if session.get("user_id") != current_user.user_id:
+        raise HTTPException(403, "Access denied")
+    
+    redis_client.delete(f"session:{session_id}")
+    
+    return {"message": "Session deleted successfully"}

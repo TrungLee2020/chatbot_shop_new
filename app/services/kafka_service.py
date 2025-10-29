@@ -6,6 +6,7 @@ from kafka.errors import KafkaError
 import json
 import logging
 from typing import Callable
+import time
 
 from app.config import settings
 
@@ -39,6 +40,7 @@ class KafkaService:
                 except Exception as e:
                     logger.error(f"❌ Kafka connection attempt {attempt+1} failed: {e}")
                     if attempt == max_retries - 1:
+                        logger.warning("⚠️ Kafka not available - running without Kafka")
                         raise
                     time.sleep(2)
         

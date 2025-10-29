@@ -132,8 +132,8 @@ async def send_message(
         ai_response_data = await ai_client.send_message(
             message=request.message,
             session_id=request.session_id,
-            user_id=request.user_id,
-            chat_history=chat_history
+            # user_id=request.user_id,
+            # chat_history=chat_history
         )
         
         ai_response_text = ai_response_data.get("response", "")
