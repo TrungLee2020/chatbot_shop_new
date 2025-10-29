@@ -2,7 +2,7 @@
 Redis connection
 """
 import redis
-from app.config import settings
+from config import settings
 
 # Global Redis client
 redis_client = redis.from_url(

@@ -7,14 +7,14 @@ import uuid
 from datetime import datetime
 import logging
 
-from app.models.chat import ChatMessage, ChatResponse
-from app.models.auth import User
-from app.api.auth import get_current_user_optional
-from app.services.session_manager import SessionManager
-from app.services.kafka_service import kafka_service
-from app.services.ai_client import ai_client
-from app.core.redis_client import get_redis
-from app.middleware.rate_limit import RateLimiter
+from models.chat import ChatMessage, ChatResponse
+from models.auth import User
+from api.auth import get_current_user_optional
+from services.session_manager import SessionManager
+from services.kafka_service import kafka_service
+from services.ai_client import ai_client
+from core.redis_client import get_redis
+from middleware.rate_limit import RateLimiter
 
 logger = logging.getLogger(__name__)
 

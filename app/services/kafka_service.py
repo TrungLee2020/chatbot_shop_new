@@ -8,7 +8,7 @@ import logging
 from typing import Callable
 import time
 
-from app.config import settings
+from config import settings
 
 logger = logging.getLogger(__name__)
 

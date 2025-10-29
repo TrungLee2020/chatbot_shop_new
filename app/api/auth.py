@@ -6,8 +6,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 import uuid
 
-from app.models.auth import Token, LoginRequest, User
-from app.core.security import create_access_token, verify_token
+from models.auth import Token, LoginRequest, User
+from core.security import create_access_token, verify_token
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 security = HTTPBearer(auto_error=False)  # auto_error=False for optional auth

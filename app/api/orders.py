@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 import uuid
 from datetime import datetime
 
-from app.models.chat import OrderRequest, GuestInfo
-from app.models.auth import User
-from app.api.auth import get_current_user_optional
-from app.services.session_manager import SessionManager
-from app.core.redis_client import get_redis
+from models.chat import OrderRequest, GuestInfo
+from models.auth import User
+from api.auth import get_current_user_optional
+from services.session_manager import SessionManager
+from core.redis_client import get_redis
 
 redis_client = get_redis()
 session_manager = SessionManager(redis_client)
