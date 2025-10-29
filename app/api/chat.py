@@ -29,17 +29,6 @@ async def send_message(
 ):
     """
     Send chat message - Works for BOTH guest and authenticated users
-    
-    Guest: Provide device_id (from browser fingerprint/UUID)
-    Authenticated: JWT token in header (optional user_id in body)
-    
-    Flow:
-    1. Determine identity (guest device_id OR authenticated user_id)
-    2. Get/create session in Redis
-    3. Add user message to session
-    4. Publish to Kafka (background)
-    5. Call AI API immediately
-    6. Return response
     """
     
     # ========================================
@@ -47,13 +36,22 @@ async def send_message(
     # ========================================
     if current_user:
         identity_id = current_user.user_id
+        is_authenticated = True
     else:
         if not request.device_id:
             raise HTTPException(400, "device_id required for guest users")
         identity_id = request.device_id
+        is_authenticated = False
     
-    # ✅ Rate limiting
+    # ========================================
+    # STEP 2: Initialize Redis & Session Manager
+    # ========================================
     redis_client = get_redis()
+    session_manager = SessionManager(redis_client)  # ✅ MOVED HERE - Before any usage
+    
+    # ========================================
+    # STEP 3: Rate Limiting
+    # ========================================
     rate_limiter = RateLimiter(redis_client)
     
     try:
@@ -65,35 +63,18 @@ async def send_message(
     except HTTPException as e:
         logger.warning(f"⚠️ Rate limit exceeded: {identity_id}")
         raise
-
+    
+    # ✅ Cleanup old sessions for guest users (AFTER session_manager is initialized)
     if not current_user and request.device_id:
-        # Optional: cleanup in background
         background_tasks.add_task(
             session_manager.cleanup_device_sessions,
             request.device_id,
             keep_latest=5
         )
-    # ========================================
-    # STEP 2: Rate Limiting
-    # ========================================
-    redis_client = get_redis()
-    rate_limiter = RateLimiter(redis_client)
-    
-    try:
-        rate_limiter.check_rate_limit(
-            identity=identity_id,
-            max_requests=10,  # 10 messages per minute
-            window_seconds=60
-        )
-    except HTTPException as e:
-        logger.warning(f"⚠️ Rate limit exceeded: {identity_id}")
-        raise
     
     # ========================================
-    # STEP 3: Session Management
+    # STEP 4: Session Management
     # ========================================
-    session_manager = SessionManager(redis_client)
-    
     if request.session_id:
         # Use existing session
         session = session_manager.get(request.session_id)
@@ -124,7 +105,7 @@ async def send_message(
         logger.info(f"✨ New session created: {request.session_id}")
     
     # ========================================
-    # STEP 4: Save User Message
+    # STEP 5: Save User Message
     # ========================================
     message_id = str(uuid.uuid4())
     
@@ -137,7 +118,7 @@ async def send_message(
     logger.info(f"💾 User message saved to session")
     
     # ========================================
-    # STEP 5: Publish to Kafka (Background)
+    # STEP 6: Publish to Kafka (Background)
     # ========================================
     kafka_message = {
         "message_id": message_id,
@@ -158,7 +139,7 @@ async def send_message(
     logger.info(f"📨 Kafka publish scheduled")
     
     # ========================================
-    # STEP 6: Call AI API (Synchronous)
+    # STEP 7: Call AI API (Synchronous)
     # ========================================
     try:
         # Get chat history for context
@@ -187,7 +168,7 @@ async def send_message(
         confidence = 0
     
     # ========================================
-    # STEP 7: Save AI Response
+    # STEP 8: Save AI Response
     # ========================================
     session_manager.add_message(
         session_id=request.session_id,
@@ -198,7 +179,7 @@ async def send_message(
     )
     
     # ========================================
-    # STEP 8: Publish Response to Kafka (Background)
+    # STEP 9: Publish Response to Kafka (Background)
     # ========================================
     response_kafka_message = {
         "message_id": message_id,
@@ -218,7 +199,7 @@ async def send_message(
     )
     
     # ========================================
-    # STEP 9: Return Response to Frontend
+    # STEP 10: Return Response to Frontend
     # ========================================
     logger.info(f"✅ Message processed successfully")
     
@@ -241,12 +222,7 @@ async def get_session_info(
     session_id: str,
     current_user: User = Depends(get_current_user_optional)
 ):
-    """
-    Get session info - Works for both guest and authenticated
-    
-    Authenticated: Verify session belongs to user
-    Guest: No verification (anyone with session_id can access)
-    """
+    """Get session info - Works for both guest and authenticated"""
     redis_client = get_redis()
     session_manager = SessionManager(redis_client)
     
@@ -275,10 +251,7 @@ async def upgrade_session(
     session_id: str,
     current_user: User = Depends(get_current_user_optional)
 ):
-    """
-    Upgrade guest session to authenticated session
-    Called after guest user logs in or registers
-    """
+    """Upgrade guest session to authenticated session"""
     if not current_user:
         raise HTTPException(401, "Must be authenticated to upgrade session")
     
